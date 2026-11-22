@@ -19,11 +19,16 @@ export class RegisterDto {
   @Matches(/^[a-zA-Z0-9_.]+$/, {
     message: 'username can contain only latin letters, digits, "_" and "."',
   })
+    /**
+   * 3-30 chars: latin letters, digits, "_" and "."
+   * @example jendos
+   */
   username: string;
 
   @Transform(trim)
   @IsEmail()
   @MaxLength(254)
+    /** @example jendos@mail.com */
   email: string;
 
   @IsString()
@@ -41,9 +46,14 @@ export class RegisterDto {
         'password must be at least 8 characters and contain an uppercase letter, a lowercase letter, a digit and a special character',
     },
   )
+    /**
+   * Min 8 chars with an uppercase letter, a lowercase letter, a digit and a special character
+   * @example Passw0rd!
+   */
   password: string;
 
   @IsString()
   @Match('password', { message: 'passwords do not match' })
+    /** @example Passw0rd! */
   confirmPassword: string;
 }
