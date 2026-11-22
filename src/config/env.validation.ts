@@ -7,6 +7,7 @@ import {
   Max,
   Min,
   validateSync,
+  MinLength
 } from 'class-validator';
 
 export enum NodeEnv {
@@ -31,6 +32,18 @@ class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   CORS_ORIGIN: string;
+
+    @IsString()
+  @MinLength(32)
+  JWT_ACCESS_SECRET: string;
+
+  @IsInt()
+  @Min(60)
+  JWT_ACCESS_TTL_SECONDS: number = 900;
+
+  @IsInt()
+  @Min(1)
+  REFRESH_TOKEN_TTL_DAYS: number = 30;
 }
 
 export function validateEnv(config: Record<string, unknown>) {
