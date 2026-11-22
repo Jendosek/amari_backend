@@ -1,4 +1,5 @@
-import type { CookieOptions, Response } from 'express';
+import type { CookieOptions, Response, Request } from 'express';
+
 
 export const REFRESH_COOKIE_NAME = 'refresh_token';
 
@@ -28,4 +29,9 @@ export function setRefreshCookie(
 
 export function clearRefreshCookie(res: Response, secure: boolean): void {
   res.clearCookie(REFRESH_COOKIE_NAME, baseOptions(secure));
+}
+
+export function getRefreshCookie(req: Request): string | undefined {
+  const value: unknown = req.cookies?.[REFRESH_COOKIE_NAME];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }

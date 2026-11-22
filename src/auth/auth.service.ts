@@ -74,6 +74,27 @@ export class AuthService {
     return this.createSession(user);
   }
 
+  async refresh(refreshToken: string | undefined): Promise<AuthSession> {
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh token is missing');
+    }
+
+    const { user, refreshToken: newRefreshToken } =
+      await this.tokensService.rotateRefreshToken(refreshToken);
+    const accessToken = await this.tokensService.signAccessToken(user);
+
+    return {
+      body: { accessToken, user: UserResponseDto.fromEntity(user) },
+      refreshToken: newRefreshToken,
+    };
+  }
+
+  async logout(refreshToken: string | undefined): Promise<void> {
+    if (refreshToken) {
+      await this.tokensService.deleteRefreshToken(refreshToken);
+    }
+  }
+
   private async createSession(user: User): Promise<AuthSession> {
     const [accessToken, refreshToken] = await Promise.all([
       this.tokensService.signAccessToken(user),

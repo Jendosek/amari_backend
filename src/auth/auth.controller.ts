@@ -4,6 +4,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Req,
   Res,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -11,17 +12,22 @@ import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { AuthService, AuthSession } from './auth.service';
 import { AuthResponseDto } from './dto/auth-response';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
-import { setRefreshCookie } from './refresh-cookie';
+import {
+  clearRefreshCookie,
+  getRefreshCookie,
+  setRefreshCookie,
+} from './refresh-cookie';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -56,6 +62,41 @@ export class AuthController {
   ): Promise<AuthResponseDto> {
     const session = await this.authService.login(dto);
     return this.sendSession(res, session);
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get a new access token using the refresh token cookie',
+  })
+  @ApiOkResponse({ type: AuthResponseDto })
+  @ApiUnauthorizedResponse({
+    description: 'Refresh token is missing, invalid, expired or reused',
+  })
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<AuthResponseDto> {
+    try {
+      const session = await this.authService.refresh(getRefreshCookie(req));
+      return this.sendSession(res, session);
+    } catch (error) {
+      // A rejected refresh token is useless, so remove it from the browser
+      clearRefreshCookie(res, this.isProduction());
+      throw error;
+    }
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Log out from the current device' })
+  @ApiNoContentResponse({ description: 'Logged out, cookie cleared' })
+  async logout(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    await this.authService.logout(getRefreshCookie(req));
+    clearRefreshCookie(res, this.isProduction());
   }
 
   // Puts the refresh token into an httpOnly cookie and returns the body
