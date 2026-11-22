@@ -28,8 +28,10 @@ import {
   getRefreshCookie,
   setRefreshCookie,
 } from './refresh-cookie';
+import { Public } from './decorators/public.decorator';
 
 @ApiTags('auth')
+@Public()
 @Controller('auth')
 export class AuthController {
   constructor(
