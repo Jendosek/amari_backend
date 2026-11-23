@@ -44,6 +44,27 @@ class EnvironmentVariables {
   @IsInt()
   @Min(1)
   REFRESH_TOKEN_TTL_DAYS: number = 30;
+
+  @IsString()
+  @IsNotEmpty()
+  SMTP_HOST: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  SMTP_PORT: number = 587;
+
+  @IsString()
+  @IsNotEmpty()
+  SMTP_USER: string;
+
+  @IsString()
+  @IsNotEmpty()
+  SMTP_PASS: string;
+
+  @IsString()
+  @IsNotEmpty()
+  MAIL_FROM: string;
 }
 
 export function validateEnv(config: Record<string, unknown>) {
