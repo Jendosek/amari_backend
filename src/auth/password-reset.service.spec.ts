@@ -159,4 +159,5 @@ describe('PasswordResetService', () => {
       ).rejects.toThrow('Reset link is invalid or expired');
       expect(prisma.user.update).not.toHaveBeenCalled();
     });
-  });});
+  });
+});
