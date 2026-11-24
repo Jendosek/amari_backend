@@ -7,7 +7,8 @@ import {
   Max,
   Min,
   validateSync,
-  MinLength
+  MinLength,
+  IsUrl
 } from 'class-validator';
 
 export enum NodeEnv {
@@ -65,6 +66,13 @@ class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   MAIL_FROM: string;
+
+  @IsUrl({ require_tld: false })
+  FRONTEND_URL: string;
+
+  @IsInt()
+  @Min(5)
+  PASSWORD_RESET_TTL_MINUTES: number = 30;
 }
 
 export function validateEnv(config: Record<string, unknown>) {

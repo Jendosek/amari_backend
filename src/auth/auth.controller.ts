@@ -20,15 +20,17 @@ import {
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuthService, AuthSession } from './auth.service';
+import { Public } from './decorators/public.decorator';
 import { AuthResponseDto } from './dto/auth-response';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { PasswordResetService } from './password-reset.service';
 import {
   clearRefreshCookie,
   getRefreshCookie,
   setRefreshCookie,
 } from './refresh-cookie';
-import { Public } from './decorators/public.decorator';
 
 @ApiTags('auth')
 @Public()
@@ -36,6 +38,7 @@ import { Public } from './decorators/public.decorator';
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
+    private readonly passwordResetService: PasswordResetService,
     private readonly config: ConfigService,
   ) {}
 
@@ -101,7 +104,17 @@ export class AuthController {
     clearRefreshCookie(res, this.isProduction());
   }
 
-  // Puts the refresh token into an httpOnly cookie and returns the body
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Send a password reset link to the email' })
+  @ApiNoContentResponse({
+    description: 'Always returned, even if the email is not registered',
+  })
+  @ApiBadRequestResponse({ description: 'Validation failed' })
+  async forgotPassword(@Body() dto: ForgotPasswordDto): Promise<void> {
+    await this.passwordResetService.requestReset(dto.email);
+  }
+
   private sendSession(res: Response, session: AuthSession): AuthResponseDto {
     setRefreshCookie(
       res,
