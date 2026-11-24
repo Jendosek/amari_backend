@@ -26,6 +26,8 @@ const config: Config = {
     'src/**/*.(t|j)s',
     'libs/**/*.(t|j)s',
     'apps/**/*.(t|j)s',
+    // Generated Prisma client is not our code
+    '!src/generated/**',
   ],
   coverageDirectory: './coverage',
   testEnvironment: 'node',

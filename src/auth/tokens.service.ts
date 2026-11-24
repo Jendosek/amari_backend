@@ -1,9 +1,9 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { createHash, randomBytes } from 'node:crypto';
 import { Role, User } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { generateToken, hashToken } from './token-crypto';
 
 export interface JwtPayload {
   sub: string;
@@ -29,11 +29,11 @@ export class TokensService {
   }
 
   async issueRefreshToken(userId: string): Promise<IssuedRefreshToken> {
-    const token = randomBytes(64).toString('base64url');
+    const token = generateToken(64);
     const expiresAt = this.refreshExpiresAt();
 
     await this.prisma.refreshToken.create({
-      data: { tokenHash: this.hash(token), userId, expiresAt },
+      data: { tokenHash: hashToken(token), userId, expiresAt },
     });
 
     return { token, expiresAt };
@@ -44,7 +44,7 @@ export class TokensService {
     token: string,
   ): Promise<{ user: User; refreshToken: IssuedRefreshToken }> {
     const stored = await this.prisma.refreshToken.findUnique({
-      where: { tokenHash: this.hash(token) },
+      where: { tokenHash: hashToken(token) },
       include: { user: true },
     });
 
@@ -63,7 +63,7 @@ export class TokensService {
       throw new UnauthorizedException('Refresh token expired');
     }
 
-    const newToken = randomBytes(64).toString('base64url');
+    const newToken = generateToken(64);
     const expiresAt = this.refreshExpiresAt();
 
     await this.prisma.$transaction(async (tx) => {
@@ -79,7 +79,7 @@ export class TokensService {
 
       await tx.refreshToken.create({
         data: {
-          tokenHash: this.hash(newToken),
+          tokenHash: hashToken(newToken),
           userId: stored.userId,
           expiresAt,
         },
@@ -96,7 +96,7 @@ export class TokensService {
   // (e.g. from another tab) is just invalid and doesn't trigger reuse detection
   async deleteRefreshToken(token: string): Promise<void> {
     await this.prisma.refreshToken.deleteMany({
-      where: { tokenHash: this.hash(token) },
+      where: { tokenHash: hashToken(token) },
     });
   }
 
@@ -105,10 +105,6 @@ export class TokensService {
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
-  }
-
-  private hash(token: string): string {
-    return createHash('sha256').update(token).digest('hex');
   }
 
   private refreshExpiresAt(): Date {
