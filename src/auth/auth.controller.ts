@@ -16,8 +16,10 @@ import {
     ApiOkResponse,
     ApiOperation,
     ApiTags,
+    ApiTooManyRequestsResponse,
     ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { minutes, Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { AuthService, AuthSession } from './auth.service';
 import { Public } from './decorators/public.decorator';
@@ -44,10 +46,12 @@ export class AuthController {
     ) { }
 
     @Post('register')
+    @Throttle({ default: { ttl: minutes(1), limit: 3 } })
     @ApiOperation({ summary: 'Register a new user and log them in' })
     @ApiCreatedResponse({ type: AuthResponseDto })
     @ApiBadRequestResponse({ description: 'Validation failed' })
     @ApiConflictResponse({ description: 'Email or username is already taken' })
+    @ApiTooManyRequestsResponse({ description: 'Too many registration attempts' })
     async register(
         @Body() dto: RegisterDto,
         @Res({ passthrough: true }) res: Response,
@@ -57,11 +61,13 @@ export class AuthController {
     }
 
     @Post('login')
+    @Throttle({ default: { ttl: minutes(1), limit: 5 } })
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'Log in with email and password' })
     @ApiOkResponse({ type: AuthResponseDto })
     @ApiBadRequestResponse({ description: 'Validation failed' })
     @ApiUnauthorizedResponse({ description: 'Invalid email or password' })
+    @ApiTooManyRequestsResponse({ description: 'Too many login attempts' })
     async login(
         @Body() dto: LoginDto,
         @Res({ passthrough: true }) res: Response,
@@ -106,12 +112,14 @@ export class AuthController {
     }
 
     @Post('forgot-password')
+    @Throttle({ default: { ttl: minutes(15), limit: 3 } })
     @HttpCode(HttpStatus.NO_CONTENT)
     @ApiOperation({ summary: 'Send a password reset link to the email' })
     @ApiNoContentResponse({
         description: 'Always returned, even if the email is not registered',
     })
     @ApiBadRequestResponse({ description: 'Validation failed' })
+    @ApiTooManyRequestsResponse({ description: 'Too many reset requests' })
     async forgotPassword(@Body() dto: ForgotPasswordDto): Promise<void> {
         await this.passwordResetService.requestReset(dto.email);
     }
@@ -131,7 +139,6 @@ export class AuthController {
         await this.passwordResetService.resetPassword(dto.token, dto.password);
     }
 
-    // Puts the refresh token into an httpOnly cookie and returns the body
     private sendSession(res: Response, session: AuthSession): AuthResponseDto {
         setRefreshCookie(
             res,
