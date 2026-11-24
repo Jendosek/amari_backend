@@ -8,6 +8,11 @@ import {
   MaxLength,
 } from 'class-validator';
 import { Match } from '../../common/validators/match.decorator';
+import {
+  PASSWORD_MAX_LENGTH,
+  STRONG_PASSWORD_MESSAGE,
+  STRONG_PASSWORD_OPTIONS,
+} from '../password-rules';
 
 const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
@@ -32,20 +37,10 @@ export class RegisterDto {
   email: string;
 
   @IsString()
-  @MaxLength(128)
-  @IsStrongPassword(
-    {
-      minLength: 8,
-      minLowercase: 1,
-      minUppercase: 1,
-      minNumbers: 1,
-      minSymbols: 1,
-    },
-    {
-      message:
-        'password must be at least 8 characters and contain an uppercase letter, a lowercase letter, a digit and a special character',
-    },
-  )
+  @MaxLength(PASSWORD_MAX_LENGTH)
+  @IsStrongPassword(STRONG_PASSWORD_OPTIONS, {
+    message: STRONG_PASSWORD_MESSAGE,
+  })
     /**
    * Min 8 chars with an uppercase letter, a lowercase letter, a digit and a special character
    * @example Passw0rd!

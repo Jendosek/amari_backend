@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as argon2 from 'argon2';
 import { User } from '../generated/prisma/client';
 import { passwordResetEmail } from '../mail/templates/password-reset.template';
 import { MailService } from '../mail/mail.service';
@@ -48,6 +49,43 @@ export class PasswordResetService {
     void this.sendResetEmail(user, token, ttlMinutes).catch((error) =>
       this.logger.error(`Failed to send reset email to ${user.email}`, error),
     );
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<void> {
+    const stored = await this.prisma.passwordResetToken.findUnique({
+      where: { tokenHash: hashToken(token) },
+    });
+
+    // One message for every case: unknown, already used or expired link
+    if (!stored || stored.usedAt || stored.expiresAt < new Date()) {
+      throw new BadRequestException('Reset link is invalid or expired');
+    }
+
+    const passwordHash = await argon2.hash(newPassword);
+
+    await this.prisma.$transaction(async (tx) => {
+      // Atomic "use once": if a parallel request already used the token,
+      // nothing is updated and the whole transaction is rolled back
+      const { count } = await tx.passwordResetToken.updateMany({
+        where: { id: stored.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      if (count === 0) {
+        throw new BadRequestException('Reset link is invalid or expired');
+      }
+
+      await tx.user.update({
+        where: { id: stored.userId },
+        data: { passwordHash },
+      });
+
+      // Log out everywhere: if the account was compromised,
+      // the attacker's sessions stop working too
+      await tx.refreshToken.updateMany({
+        where: { userId: stored.userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    });
   }
 
   private sendResetEmail(
