@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Amari: Google sign-in test</title>
+    <script src="https://accounts.google.com/gsi/client" async></script>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 720px;
+        margin: 40px auto;
+        padding: 0 16px;
+      }
+      input,
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        font-family: monospace;
+      }
+      textarea {
+        height: 120px;
+      }
+      pre {
+        background: #f4f4f4;
+        padding: 12px;
+        overflow-x: auto;
+      }
+      .row {
+        margin: 16px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Google sign-in test</h1>
+    <p>
+      Dev tool: gets a Google ID token to test
+      <code>POST /api/v1/auth/google</code>
+      in Postman or Swagger. The page must be opened from an origin listed in
+      the OAuth client's "Authorized JavaScript origins".
+    </p>
+
+    <div class="row">
+      <label for="client-id">Google Client ID</label>
+      <input
+        id="client-id"
+        placeholder="1234567890-abc.apps.googleusercontent.com"
+      />
+      <button id="init">Show Google button</button>
+    </div>
+
+    <div class="row" id="google-button"></div>
+
+    <div class="row">
+      <label for="token">ID token</label>
+      <textarea id="token" readonly></textarea>
+      <button id="copy">Copy token</button>
+    </div>
+
+    <div class="row">
+      <div>Token payload (what the backend will read):</div>
+      <pre id="payload">—</pre>
+    </div>
+
+    <script>
+      const clientIdInput = document.getElementById('client-id');
+      const tokenField = document.getElementById('token');
+      const payloadField = document.getElementById('payload');
+
+      clientIdInput.value = localStorage.getItem('googleClientId') ?? '';
+
+      function decodePayload(jwt) {
+        const base64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        const json = decodeURIComponent(
+          atob(base64)
+            .split('')
+            .map((c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0'))
+            .join(''),
+        );
+        return JSON.parse(json);
+      }
+
+      function onGoogleCredential(response) {
+        tokenField.value = response.credential;
+        const { email, email_verified, sub, aud, exp } = decodePayload(
+          response.credential,
+        );
+        payloadField.textContent = JSON.stringify(
+          { email, email_verified, sub, aud, expiresAt: new Date(exp * 1000) },
+          null,
+          2,
+        );
+      }
+
+      document.getElementById('init').addEventListener('click', () => {
+        const clientId = clientIdInput.value.trim();
+        if (!clientId) {
+          return;
+        }
+        localStorage.setItem('googleClientId', clientId);
+
+        google.accounts.id.initialize({
+          client_id: clientId,
+          callback: onGoogleCredential,
+        });
+        google.accounts.id.renderButton(
+          document.getElementById('google-button'),
+          {
+            theme: 'outline',
+            size: 'large',
+          },
+        );
+      });
+
+      document.getElementById('copy').addEventListener('click', async () => {
+        await navigator.clipboard.writeText(tokenField.value);
+      });
+    </script>
+  </body>
+</html>

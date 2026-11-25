@@ -1,12 +1,19 @@
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import * as argon2 from 'argon2';
-import { Prisma, Role, User } from '../generated/prisma/client';
+import { OAuthProvider, Prisma, Role, User } from '../generated/prisma/client';
 import { UsersService } from '../users/users.service';
 import { AuthService } from './auth.service';
+import { GoogleVerifier } from './google-verifier.service';
 import { RegisterDto } from './dto/register.dto';
 import { TokensService } from './tokens.service';
 
 const PASSWORD = 'Passw0rd!';
+
+const uniqueViolation = () =>
+  new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+    code: 'P2002',
+    clientVersion: 'test',
+  });
 
 const registerDto: RegisterDto = {
   username: 'jendos',
@@ -21,6 +28,10 @@ describe('AuthService', () => {
     findByEmail: jest.Mock;
     findByUsername: jest.Mock;
     create: jest.Mock;
+    findByOAuthAccount: jest.Mock;
+    linkOAuthAccount: jest.Mock;
+    generateUniqueUsername: jest.Mock;
+    createWithOAuthAccount: jest.Mock;
   };
   let tokensService: {
     signAccessToken: jest.Mock;
@@ -28,10 +39,10 @@ describe('AuthService', () => {
     rotateRefreshToken: jest.Mock;
     deleteRefreshToken: jest.Mock;
   };
+  let googleVerifier: { verify: jest.Mock };
   let service: AuthService;
 
   beforeAll(async () => {
-    // Real argon2 hash, so login tests check real password verification
     user = {
       id: 'user-1',
       username: 'jendos',
@@ -48,6 +59,10 @@ describe('AuthService', () => {
       findByEmail: jest.fn().mockResolvedValue(null),
       findByUsername: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue(user),
+      findByOAuthAccount: jest.fn().mockResolvedValue(null),
+      linkOAuthAccount: jest.fn(),
+      generateUniqueUsername: jest.fn().mockResolvedValue('jendos'),
+      createWithOAuthAccount: jest.fn().mockResolvedValue(user),
     };
     tokensService = {
       signAccessToken: jest.fn().mockResolvedValue('access-token'),
@@ -58,10 +73,17 @@ describe('AuthService', () => {
       rotateRefreshToken: jest.fn(),
       deleteRefreshToken: jest.fn(),
     };
+    googleVerifier = {
+      verify: jest.fn().mockResolvedValue({
+        googleId: 'google-1',
+        email: 'jendos@gmail.com',
+      }),
+    };
 
     service = new AuthService(
       usersService as unknown as UsersService,
       tokensService as unknown as TokensService,
+      googleVerifier as unknown as GoogleVerifier,
     );
   });
 
@@ -96,12 +118,7 @@ describe('AuthService', () => {
     });
 
     it('throws 409 when the DB unique index rejects a parallel duplicate', async () => {
-      usersService.create.mockRejectedValue(
-        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
-          code: 'P2002',
-          clientVersion: 'test',
-        }),
-      );
+      usersService.create.mockRejectedValue(uniqueViolation());
 
       await expect(service.register(registerDto)).rejects.toThrow(
         ConflictException,
@@ -145,6 +162,85 @@ describe('AuthService', () => {
       await expect(
         service.login({ email: user.email, password: PASSWORD }),
       ).rejects.toThrow('Invalid email or password');
+    });
+  });
+
+  describe('loginWithGoogle', () => {
+    it('logs in a user who already linked this Google account', async () => {
+      usersService.findByOAuthAccount.mockResolvedValue(user);
+
+      const session = await service.loginWithGoogle('id-token');
+
+      expect(usersService.findByOAuthAccount).toHaveBeenCalledWith(
+        OAuthProvider.GOOGLE,
+        'google-1',
+      );
+      expect(usersService.linkOAuthAccount).not.toHaveBeenCalled();
+      expect(usersService.createWithOAuthAccount).not.toHaveBeenCalled();
+      expect(session.body.user.id).toBe(user.id);
+    });
+
+    it('links Google to an existing account with the same email', async () => {
+      usersService.findByEmail.mockResolvedValue(user);
+
+      const session = await service.loginWithGoogle('id-token');
+
+      expect(usersService.linkOAuthAccount).toHaveBeenCalledWith(
+        user.id,
+        OAuthProvider.GOOGLE,
+        'google-1',
+      );
+      expect(usersService.createWithOAuthAccount).not.toHaveBeenCalled();
+      expect(session.body.user.id).toBe(user.id);
+    });
+
+    it('creates a new user with a generated username', async () => {
+      const session = await service.loginWithGoogle('id-token');
+
+      expect(usersService.generateUniqueUsername).toHaveBeenCalledWith(
+        'jendos@gmail.com',
+      );
+      expect(usersService.createWithOAuthAccount).toHaveBeenCalledWith(
+        { username: 'jendos', email: 'jendos@gmail.com' },
+        OAuthProvider.GOOGLE,
+        'google-1',
+      );
+      expect(session.refreshToken.token).toBe('refresh-token');
+    });
+
+    it('rejects an invalid Google token without touching users', async () => {
+      googleVerifier.verify.mockRejectedValue(
+        new UnauthorizedException('Invalid Google token'),
+      );
+
+      await expect(service.loginWithGoogle('bad-token')).rejects.toThrow(
+        'Invalid Google token',
+      );
+      expect(usersService.findByOAuthAccount).not.toHaveBeenCalled();
+    });
+
+    it('retries once when a parallel request created the same user', async () => {
+      usersService.createWithOAuthAccount.mockRejectedValueOnce(
+        uniqueViolation(),
+      );
+      usersService.findByOAuthAccount
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(user);
+
+      const session = await service.loginWithGoogle('id-token');
+
+      expect(usersService.findByOAuthAccount).toHaveBeenCalledTimes(2);
+      expect(session.body.user.id).toBe(user.id);
+    });
+
+    it('throws 409 when the email is linked to another Google account', async () => {
+      usersService.findByEmail.mockResolvedValue(user);
+      usersService.linkOAuthAccount.mockRejectedValue(uniqueViolation());
+
+      await expect(service.loginWithGoogle('id-token')).rejects.toThrow(
+        ConflictException,
+      );
+      expect(usersService.linkOAuthAccount).toHaveBeenCalledTimes(2);
     });
   });
 

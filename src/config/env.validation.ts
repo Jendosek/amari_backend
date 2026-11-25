@@ -73,6 +73,10 @@ class EnvironmentVariables {
   @IsInt()
   @Min(5)
   PASSWORD_RESET_TTL_MINUTES: number = 30;
+
+  @IsString()
+  @IsNotEmpty()
+  GOOGLE_CLIENT_ID: string;
 }
 
 export function validateEnv(config: Record<string, unknown>) {
