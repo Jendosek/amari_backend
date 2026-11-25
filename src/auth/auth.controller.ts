@@ -34,6 +34,7 @@ import {
     getRefreshCookie,
     setRefreshCookie,
 } from './refresh-cookie';
+import { GoogleLoginDto } from './dto/google-login.dto';
 
 @ApiTags('auth')
 @Public()
@@ -73,6 +74,31 @@ export class AuthController {
         @Res({ passthrough: true }) res: Response,
     ): Promise<AuthResponseDto> {
         const session = await this.authService.login(dto);
+        return this.sendSession(res, session);
+    }
+
+    @Post('google')
+    @Throttle({ default: { ttl: minutes(1), limit: 10 } })
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({
+        summary: 'Log in or sign up with a Google ID token',
+        description:
+            'Creates the user on first login, links an existing account with the same verified email',
+    })
+    @ApiOkResponse({ type: AuthResponseDto })
+    @ApiBadRequestResponse({ description: 'Validation failed' })
+    @ApiUnauthorizedResponse({
+        description: 'Invalid Google token or unverified Google email',
+    })
+    @ApiConflictResponse({
+        description: 'The account is already linked to another Google account',
+    })
+    @ApiTooManyRequestsResponse({ description: 'Too many attempts' })
+    async googleLogin(
+        @Body() dto: GoogleLoginDto,
+        @Res({ passthrough: true }) res: Response,
+    ): Promise<AuthResponseDto> {
+        const session = await this.authService.loginWithGoogle(dto.idToken);
         return this.sendSession(res, session);
     }
 

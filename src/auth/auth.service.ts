@@ -4,16 +4,15 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import * as argon2 from 'argon2';
-import { Prisma, User } from '../generated/prisma/client';
+import { OAuthProvider, Prisma, User } from '../generated/prisma/client';
 import { UserResponseDto } from '../users/dto/user-response.dto';
 import { UsersService } from '../users/users.service';
 import { AuthResponseDto } from './dto/auth-response';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { GoogleProfile, GoogleVerifier } from './google-verifier.service';
 import { IssuedRefreshToken, TokensService } from './tokens.service';
 
-// What the service returns to the controller: the response body
-// plus the refresh token, which the controller puts into a cookie
 export interface AuthSession {
   body: AuthResponseDto;
   refreshToken: IssuedRefreshToken;
@@ -24,6 +23,7 @@ export class AuthService {
   constructor(
     private readonly usersService: UsersService,
     private readonly tokensService: TokensService,
+    private readonly googleVerifier: GoogleVerifier,
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthSession> {
@@ -44,12 +44,7 @@ export class AuthService {
         passwordHash,
       });
     } catch (error) {
-      // Two simultaneous requests can both pass the checks above;
-      // the unique index in the DB is the final guard
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
+      if (this.isUniqueViolation(error)) {
         throw new ConflictException('Email or username is already taken');
       }
       throw error;
@@ -61,8 +56,6 @@ export class AuthService {
   async login(dto: LoginDto): Promise<AuthSession> {
     const user = await this.usersService.findByEmail(dto.email);
 
-    // Same error for unknown email, wrong password and Google-only accounts,
-    // so the response doesn't reveal which part was wrong
     const isValid =
       user?.passwordHash != null &&
       (await argon2.verify(user.passwordHash, dto.password));
@@ -72,6 +65,29 @@ export class AuthService {
     }
 
     return this.createSession(user);
+  }
+
+  async loginWithGoogle(idToken: string): Promise<AuthSession> {
+    const profile = await this.googleVerifier.verify(idToken);
+
+    try {
+      return this.createSession(await this.resolveGoogleUser(profile));
+    } catch (error) {
+      if (!this.isUniqueViolation(error)) {
+        throw error;
+      }
+    }
+
+    try {
+      return this.createSession(await this.resolveGoogleUser(profile));
+    } catch (error) {
+      if (this.isUniqueViolation(error)) {
+        throw new ConflictException(
+          'This account is already linked to another Google account',
+        );
+      }
+      throw error;
+    }
   }
 
   async refresh(refreshToken: string | undefined): Promise<AuthSession> {
@@ -93,6 +109,42 @@ export class AuthService {
     if (refreshToken) {
       await this.tokensService.deleteRefreshToken(refreshToken);
     }
+  }
+
+  private async resolveGoogleUser(profile: GoogleProfile): Promise<User> {
+    const linked = await this.usersService.findByOAuthAccount(
+      OAuthProvider.GOOGLE,
+      profile.googleId,
+    );
+    if (linked) {
+      return linked;
+    }
+
+    const existing = await this.usersService.findByEmail(profile.email);
+    if (existing) {
+      await this.usersService.linkOAuthAccount(
+        existing.id,
+        OAuthProvider.GOOGLE,
+        profile.googleId,
+      );
+      return existing;
+    }
+
+    const username = await this.usersService.generateUniqueUsername(
+      profile.email,
+    );
+    return this.usersService.createWithOAuthAccount(
+      { username, email: profile.email },
+      OAuthProvider.GOOGLE,
+      profile.googleId,
+    );
+  }
+
+  private isUniqueViolation(error: unknown): boolean {
+    return (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    );
   }
 
   private async createSession(user: User): Promise<AuthSession> {
