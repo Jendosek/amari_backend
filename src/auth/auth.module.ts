@@ -7,6 +7,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { PasswordResetService } from './password-reset.service';
 import { TokensService } from './tokens.service';
+import { GoogleVerifier } from './google-verifier.service';
 
 @Module({
   imports: [
@@ -24,6 +25,6 @@ import { TokensService } from './tokens.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, TokensService, PasswordResetService],
+  providers: [AuthService, TokensService, PasswordResetService, GoogleVerifier,],
 })
 export class AuthModule {}
